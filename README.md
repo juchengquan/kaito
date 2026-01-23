@@ -30,24 +30,26 @@ kaito/
 
 ## Setup
 
-### Prerequisites
+### Installation
 
-- Python 3.11 and above
+*Prerequisites: Python 3.11 and above*
 
-#### Files Search
+Install dependencies using the Makefile:
+```bash
+make install
+```
+
+#### OpenAI API Key
+- Paste your OpenAI API key into .env.example
+- Rename `.env.example` to `.env`
+
+#### Files Search Support
 - Create a folder `user_data` under this repo
 - Create an empty JSON file named `files.json`, and edit as follows:
 ```json
 {}
 ```
 - Copy your PDF files into the folder
-
-### Installation
-
-1. Install dependencies using the Makefile:
-```bash
-make install
-```
 
 ## Usage
 
