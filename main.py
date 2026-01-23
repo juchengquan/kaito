@@ -40,7 +40,7 @@ if __name__ == "__main__":
             Choice(name="Code Interpreter", value="code_interpreter", enabled=True)
         ],
         cycle=False,
-        validate=lambda x: len(x) >= 0
+        validate=lambda x: len(x) >= 0,
     ).execute()
     # tools_selection = ["web_search", "file_search", "code_interpreter"]
 
@@ -55,7 +55,7 @@ if __name__ == "__main__":
         check_vec = inquirer.select(  # type: ignore
             message="Check if vector store is ready...",
             choices=[
-                Choice(name="Check", value="Ready!"),
+                Choice(name="Check Readiness", value="Ready!"),
             ],
             default="Ready!",
             validate=_check_ready(),

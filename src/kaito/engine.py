@@ -16,9 +16,10 @@ def print_class(event):
     if not isinstance(event, R.ResponseTextDeltaEvent):
         print(type(event))
 
+
 PRINT_STATUS: bool = os.getenv("PRINT_STATUS", default="FALSE").lower() in ("true", "1")
 MAX_TOOL_CALLS: int = int(os.getenv("MAX_TOOL_CALLS", default=5))
-
+WRITE_TO_FILE: bool = os.getenv("WRITE_TO_FILE", default="FALSE").lower() in ("true", "1")
 
 
 class EventEngine:
@@ -39,7 +40,6 @@ class EventEngine:
         self._file_db = FileDB(client=client)
         self._vec = VectorStoreEngine(client=client)
 
-
     def create_response(
         self,
         model_info: dict,
@@ -58,11 +58,11 @@ class EventEngine:
 
         return self._client.responses.create(
             model=model,
-            input=self._history, # type: ignore
+            input=self._history,  # type: ignore
             tools=_tools,
             max_tool_calls=MAX_TOOL_CALLS,
             stream=True,
-            reasoning={"effort": effort}, # type: ignore
+            reasoning={"effort": effort},  # type: ignore
             # **kwargs
         )
 
@@ -70,18 +70,16 @@ class EventEngine:
         output_index = -1
         t_s = time.time()
 
-        for i, event in enumerate(stream):
+        for _, event in enumerate(stream):
             match type(event):
                 case R.ResponseCreatedEvent | R.ResponseInProgressEvent | R.ResponseFailedEvent | R.ResponseIncompleteEvent:
                     ...
                     # print_class(event)
-                
+
                 case R.ResponseCompletedEvent:
                     event = cast(R.ResponseCompletedEvent, event)
                     _output = event.response.output
-                    self._history += [
-                        {"role": el.role, "content": el.content} for el in _output if isinstance(el, R.ResponseOutputMessage)
-                    ]
+                    self._history += [{"role": el.role, "content": el.content} for el in _output if isinstance(el, R.ResponseOutputMessage)]
 
                 # status (main) - Output Item
                 case R.ResponseOutputItemAddedEvent | R.ResponseOutputItemDoneEvent:
@@ -187,8 +185,7 @@ class EventEngine:
                 case _:
                     print_class(event)
 
-            with open("streaming_1.json", "a") as file:
-                json_line = json.dumps(event.model_dump(), indent=2)
-                file.write(json_line + "\n")
-
-        
+            if WRITE_TO_FILE:
+                with open(f"tests/streaming_results_{int(time.time())}.json", "a") as file:
+                    json_line = json.dumps(event.model_dump(), indent=2)
+                    file.write(json_line + "\n")

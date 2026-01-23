@@ -17,7 +17,11 @@ def sync_vector_store_files(
             # if info['id'] is not None
         ]
         files_selection = inquirer.checkbox(  # type: ignore
-            message="Select the files to use for File Search tool:", choices=files_choices, cycle=False, validate=lambda x: len(x) >= 1
+            message="Select the files to use for File Search tool:",
+            choices=files_choices,
+            cycle=False,
+            validate=lambda x: len(x) >= 1,
+            invalid_message="Select at least 1 file.",
         ).execute()
 
         vs = engine._vec.get_or_create_vector_store()
@@ -33,13 +37,10 @@ def sync_vector_store_files(
                 with open(file_info["filepath"], "rb") as file_content:
                     file_info_uploaded = engine._client.files.create(file=(file_info["filename"], file_content), purpose="user_data")
                 file_info = {
-                    file_info["hash"]: {
-                        **file_info,
-                        **file_info_uploaded.model_dump(),
-                    }
+                    **file_info,
+                    **file_info_uploaded.model_dump(),
                 }
-                engine._file_db.update_file_info(file_info)
-
+                engine._file_db.update_file_info({file_info["hash"]: file_info})
             if file_info["id"] not in vs_files_ids:
                 print(f"Creating vector store file for '{file_info['filename']}'...")
                 _ = engine._vec.create_vector_store_file(vs.id, file_info["id"])  # type: ignore
