@@ -47,6 +47,20 @@ def sync_vector_store_files(
                 # print(vs_file)
         vector_store_ids = [vs.id]
 
+    def _check_ready():
+        all([check_all_files_ready(engine, vs_id) for vs_id in vector_store_ids])
+        
+    if vector_store_ids:
+        _ = inquirer.select(  # type: ignore
+            message="Check if vector store is ready...",
+            choices=[
+                Choice(name="Check Readiness", value="Ready!"),
+            ],
+            default="Ready!",
+            validate=_check_ready(),
+            invalid_message="Vector store is not ready yet.",
+        ).execute()
+
     return vector_store_ids
 
 

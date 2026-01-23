@@ -8,7 +8,7 @@ load_dotenv()
 
 if __name__ == "__main__":
     from kaito.engine import EventEngine
-    from kaito.ui_helper import check_all_files_ready, sync_vector_store_files
+    from kaito.ui_helper import sync_vector_store_files
 
     model_info = inquirer.select(  # type: ignore
         message="Select the model:",
@@ -31,36 +31,26 @@ if __name__ == "__main__":
 
     history: list[dict] = []
     engine = EventEngine(client=OpenAI(), history=history)
-
-    tools_selection = inquirer.checkbox(  # type: ignore
-        message="Select the tools:",
-        choices=[
-            Choice(name="Web Search", value="web_search", enabled=True),
-            Choice(name="File Search", value="file_search", enabled=True),
-            Choice(name="Code Interpreter", value="code_interpreter", enabled=True)
-        ],
-        cycle=False,
-        validate=lambda x: len(x) >= 0,
-    ).execute()
-    # tools_selection = ["web_search", "file_search", "code_interpreter"]
+    tools_selection = ["web_search", "file_search", "code_interpreter"]
 
     while True:
+        
+        tools_selection = inquirer.checkbox(  # type: ignore
+            message="Select the tools:",
+            choices=[
+                Choice(name="Web Search", value="web_search", enabled=bool("web_search" in tools_selection)),
+                Choice(name="File Search", value="file_search", enabled=bool("file_search" in tools_selection)),
+                Choice(name="Code Interpreter", value="code_interpreter", enabled=bool("code_interpreter" in tools_selection))
+            ],
+            cycle=False,
+            validate=lambda x: len(x) >= 0,
+        ).execute()
+
         vector_store_ids: list[str] = sync_vector_store_files(
             engine=engine,
             tools_selection=tools_selection,
         )
 
-        def _check_ready():
-            all([check_all_files_ready(engine, vs_id) for vs_id in vector_store_ids])
-        check_vec = inquirer.select(  # type: ignore
-            message="Check if vector store is ready...",
-            choices=[
-                Choice(name="Check Readiness", value="Ready!"),
-            ],
-            default="Ready!",
-            validate=_check_ready(),
-            invalid_message="Vector store is not ready yet.",
-        ).execute()
         user_query = inquirer.text(  # type: ignore
             message="Enter your query:",
             # default="",
