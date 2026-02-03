@@ -1,0 +1,14 @@
+
+
+models:
+  gpt-5-nano:
+    name: gpt-5-nano
+    default_reasoning_effort: "low"
+    available_reasoning_effort: ["minimal", "low", "medium", "high"]
+
+  gpt-5.2:
+    name: gpt-5.2
+    default_reasoning_effort: "none"
+    available_reasoning_effort: ["none", "low", "medium", "high"]
+
+default: gpt-5-nano
