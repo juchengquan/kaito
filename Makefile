@@ -7,4 +7,4 @@ install:
 	uv sync --all-extras
 
 run:
-	uv run python main.py
+	uv run python -m kaito.main

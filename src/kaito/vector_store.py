@@ -1,65 +1,174 @@
-from dotenv import load_dotenv
+from typing import Literal, Optional
+
+import httpx
+from loguru import logger
 from openai import OpenAI
+from openai._types import Body, Headers, NotGiven, Omit, Query, SequenceNotStr, not_given, omit
+from openai.pagination import SyncCursorPage
 
-#
-load_dotenv()
+# from openai.pagination import AsyncCursorPage, AsyncPage, SyncPage
+# from openai.resources.files import Files as OpenAIFiles
+from openai.resources.vector_stores import (
+    Files as OpenAIVecStoreFiles,
+    VectorStores as OpenAIVectorStores,
+)
+from openai.types import FileChunkingStrategyParam, vector_store_create_params
+from openai.types.shared_params.metadata import Metadata
+from openai.types.vector_store import VectorStore
+from openai.types.vector_stores.vector_store_file import VectorStoreFile
 
 
-class VectorStoreEngine:
-    def __init__(self, client: OpenAI):
-        self._client = client
+class KaitoVectorStoreFiles(OpenAIVecStoreFiles):
+    """Extended vector store file operations with full pagination."""
 
-    def get_or_create_vector_store(self):
-        vector_stores = self._client.vector_stores.list(order="desc")
+    def list_all(
+        self,
+        vector_store_id: str,
+        *,
+        filter: Literal["in_progress", "completed", "failed", "cancelled"] | Omit = omit,
+        # order: Literal["asc", "desc"] | Omit = omit,
+        # Use the following arguments if you need to pass additional parameters to the API that aren't available via kwargs.
+        # The extra values given here take precedence over values defined on the client or passed to this method.
+        extra_headers: Headers | None = None,
+        extra_query: Query | None = None,
+        extra_body: Body | None = None,
+        timeout: float | httpx.Timeout | None | NotGiven = not_given,
+    ) -> SyncCursorPage[VectorStoreFile]:
+        """List all files in a vector store with pagination handled internally.
+
+        Args:
+            vector_store_id: Vector store identifier.
+            filter: Optional filter for file status.
+            extra_headers: Optional HTTP headers.
+            extra_query: Optional query parameters.
+            extra_body: Optional request body overrides.
+            timeout: Optional request timeout.
+
+        Returns:
+            A SyncCursorPage containing all VectorStoreFile entries.
+        """
+        files: list[VectorStoreFile] = []
+        has_more = True
+        last_id: str = ""
+        while has_more:
+            _payload: dict = {
+                "vector_store_id": vector_store_id,
+                "filter": filter,
+                "order": "desc",
+                "extra_headers": extra_headers,
+                "extra_query": extra_query,
+                "extra_body": extra_body,
+                "timeout": timeout,
+            }
+            if last_id:
+                _payload.update({"after": last_id})
+            res = self.list(**_payload)
+            files.extend(res.data)
+            last_id = res.last_id  # type: ignore
+            has_more = res.has_more
+        return SyncCursorPage(data=files, has_more=False)
+
+
+class KaitoVectorStores(OpenAIVectorStores):
+    """Extended vector store operations with convenience helpers."""
+
+    def get_or_create(
+        self,
+        *,
+        chunking_strategy: FileChunkingStrategyParam | Omit = omit,
+        description: str | Omit = omit,
+        expires_after: vector_store_create_params.ExpiresAfter | Omit = omit,
+        file_ids: SequenceNotStr[str] | Omit = omit,
+        metadata: Optional[Metadata] | Omit = omit,
+        name: str | Omit = omit,
+        # Use the following arguments if you need to pass additional parameters to the API that aren't available via kwargs.
+        # The extra values given here take precedence over values defined on the client or passed to this method.
+        extra_headers: Headers | None = None,
+        extra_query: Query | None = None,
+        extra_body: Body | None = None,
+        timeout: float | httpx.Timeout | None | NotGiven = not_given,
+    ) -> VectorStore:
+        """Return the most recent vector store or create a new one.
+
+        Args:
+            chunking_strategy: Optional chunking strategy for file ingestion.
+            description: Optional description for the vector store.
+            expires_after: Optional expiration policy.
+            file_ids: Optional initial file IDs.
+            metadata: Optional metadata for the vector store.
+            name: Optional name for the vector store.
+            extra_headers: Optional HTTP headers.
+            extra_query: Optional query parameters.
+            extra_body: Optional request body overrides.
+            timeout: Optional request timeout.
+
+        Returns:
+            An existing VectorStore if present, otherwise a newly created one.
+        """
+        vector_stores = self.list_all()
+
         # TODO: just get the latest one
         if vector_stores.data:
             vs_id = vector_stores.data[0].id
-            vector_store = self._client.vector_stores.retrieve(vector_store_id=vs_id)
-            print(f"Found vector store: {vector_store.id}")
+            logger.debug(f"Found vector store: {vs_id}")
+            return self.retrieve(vector_store_id=vs_id)
         else:
-            print("No vector stores found.")
+            logger.debug("No vector stores found.")
             # create a new one
-            vector_store = self._client.vector_stores.create()
+            return self._client.vector_stores.create(
+                chunking_strategy=chunking_strategy,
+                description=description,
+                expires_after=expires_after,
+                file_ids=file_ids,
+                metadata=metadata,
+                name=name,
+                extra_headers=extra_headers,
+                extra_query=extra_query,
+                extra_body=extra_body,
+                timeout=timeout,
+            )
 
-        return vector_store
-
-    def retrieve_vector_store(self, vs_id: str):
-        vector_store = self._client.vector_stores.retrieve(vector_store_id=vs_id)
-        return vector_store
-
-    def list_vector_store_files(self, vs_id: str):
-        vector_store_files = self._client.vector_stores.files.list(vector_store_id=vs_id)
-        return vector_store_files
-
-    def create_vector_store_file(
+    def list_all(
         self,
-        vs_id: str,
-        file_id: str,
-        attributes: dict = {},
-    ):
-        vs_file = self._client.vector_stores.files.create(
-            vector_store_id=vs_id,
-            file_id=file_id,
-            attributes=attributes,
-        )
-        return vs_file
+        *,
+        # Use the following arguments if you need to pass additional parameters to the API that aren't available via kwargs.
+        # The extra values given here take precedence over values defined on the client or passed to this method.
+        extra_headers: Headers | None = None,
+        extra_query: Query | None = None,
+        extra_body: Body | None = None,
+        timeout: float | httpx.Timeout | None | NotGiven = not_given,
+    ) -> SyncCursorPage[VectorStore]:
+        """List all vector stores with pagination handled internally.
 
-    def delete_vector_store_file(self):
-        raise NotImplementedError
+        Args:
+            extra_headers: Optional HTTP headers.
+            extra_query: Optional query parameters.
+            extra_body: Optional request body overrides.
+            timeout: Optional request timeout.
+
+        Returns:
+            A SyncCursorPage containing all VectorStore entries.
+        """
+        vector_stores: list[VectorStore] = []
+        has_more = True
+        last_id: str = ""
+        while has_more:
+            _payload: dict = {
+                "order": "desc",
+                "extra_headers": extra_headers,
+                "extra_query": extra_query,
+                "extra_body": extra_body,
+                "timeout": timeout,
+            }
+            if last_id:
+                _payload.update({"after": last_id})
+            res = self.list(**_payload)
+            vector_stores.extend(res.data)
+            last_id = res.last_id  # type: ignore
+            has_more = res.has_more
+        return SyncCursorPage(data=vector_stores, has_more=False)
 
 
 if __name__ == "__main__":
-    from kaito.file_db import FileDB
-
     client = OpenAI()
-    file_db = FileDB(client=client)
-
-    print(file_db.db)
-
-    vs_engine = VectorStoreEngine(client)
-
-    vs = vs_engine.get_or_create_vector_store()
-    files = vs_engine.list_vector_store_files(vs.id)
-
-    for file in files.data:
-        print(file.id)
+    vs_engine = KaitoVectorStoreFiles(client)
