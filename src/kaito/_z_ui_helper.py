@@ -32,7 +32,7 @@ def sync_uploaded_files(
             for info in files_info.values()  # if info['id'] is not None
         ] + [Choice(name="<< Back", value="/back", enabled=False)]
 
-        files_selection = inquirer.checkbox(  # type: ignore
+        files_selection = inquirer.checkbox(
             message="Select the files/images as Inputs:",
             choices=files_choices,
             cycle=False,
@@ -73,7 +73,7 @@ def sync_uploaded_files(
 #         # [
 #         #     Choice(name="Back", value={})
 #         # ]
-#         files_selection = inquirer.checkbox(  # type: ignore
+#         files_selection = inquirer.checkbox(
 #             message="Select the files/images as Inputs:",
 #             choices=files_choices,
 #             cycle=False,
@@ -86,7 +86,7 @@ def sync_uploaded_files(
 
 #         if "file_search" in tools_selection:
 #             logger.debug("Getting/creating vector store for file search...")
-#             vs = engine._vs.get_or_create(expires_after={"anchor": "created_at", "days": 86400 * 7})  # type: ignore
+#             vs = engine._vs.get_or_create(expires_after={"anchor": "created_at", "days": 86400 * 7})
 #             vs_id = vs.id
 #             vs_files_ids = [file.id for file in engine._vs_files.list(vector_store_id=vs_id).data]
 #             vector_store_ids = [vs_id]
@@ -110,7 +110,7 @@ def sync_uploaded_files(
 #     # def _check_ready():
 #     #     all([check_all_files_ready(engine, vs_id) for vs_id in vector_store_ids])
 #     # if vector_store_ids:
-#     #     _ = inquirer.select(  # type: ignore
+#     #     _ = inquirer.select(
 #     #         message="Check if vector store is ready...",
 #     #         choices=[
 #     #             Choice(name="Check Readiness", value="Ready!"),

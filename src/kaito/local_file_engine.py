@@ -117,10 +117,6 @@ class LocalFileEngine:
             else:  # File is no longer in OpenAI
                 self.db[_hash] = FileInfo(
                     **self.db[_hash].model_dump(),
-                    id="",
-                    status=None,
-                    expires_at=None,
-                    created_at=None,
                 )
         self._save_db()
 

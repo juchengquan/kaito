@@ -6,5 +6,11 @@ format:
 install:
 	uv sync --all-extras
 
-run:
-	uv run python -m kaito.main
+clear:
+	clear
+
+r: clear
+	uv run python -m kaito.rich
+
+t: clear
+	uv run python -m kaito.textual

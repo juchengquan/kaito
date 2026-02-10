@@ -1,7 +1,7 @@
 import os
 
-from loguru import logger
-from openai import OpenAI
+# from loguru import logger
+from openai import AsyncOpenAI, OpenAI
 from rich.console import Console
 from rich.live import Live
 from rich.markdown import Markdown
@@ -12,7 +12,10 @@ from .types import SessionState
 from .ui import get_model_info, get_selected_tools, get_uploaded_files, get_user_query
 
 
-def _ensure_model_info(session: SessionState, console: Console) -> bool:
+async def _ensure_model_info(
+    session: SessionState,
+    console: Console,
+) -> bool:
     """Ensure the session has model info, prompting the user if needed.
 
     Args:
@@ -23,13 +26,17 @@ def _ensure_model_info(session: SessionState, console: Console) -> bool:
         None.
     """
     if not session.model_info or session.user_query == "/model":
+        # layout["lower"].update("WTF")
+        # layout.refresh_screen(console, "lower")
+        # layout["lower"].update("[bold italic red]Model Info")
+        # with console.screen():
         console.rule("[bold italic red]Model Info")
-        session.model_info = get_model_info()
+        session.model_info = await get_model_info()
         return True
     return False
 
 
-def _ensure_tools_selection(session: SessionState, console: Console) -> bool:
+async def _ensure_tools_selection(session: SessionState, console: Console) -> bool:
     """Ensure tool selection is set, optionally rerouting to model selection.
 
     Args:
@@ -41,7 +48,7 @@ def _ensure_tools_selection(session: SessionState, console: Console) -> bool:
     """
     if not session.tools_selection or session.user_query == "/tool":
         console.rule("[bold italic red]Tools Info")
-        session.tools_selection = get_selected_tools(session=session)
+        session.tools_selection = await get_selected_tools(session=session)
 
         if "/back" in session.tools_selection:
             session.tools_selection = []
@@ -50,7 +57,7 @@ def _ensure_tools_selection(session: SessionState, console: Console) -> bool:
     return False
 
 
-def _handle_file_inputs(engine: EventEngine, session: SessionState, console: Console) -> bool:
+async def _handle_file_inputs(engine: EventEngine, session: SessionState, console: Console) -> bool:
     """Handle optional file uploads for the current session.
 
     Args:
@@ -67,7 +74,7 @@ def _handle_file_inputs(engine: EventEngine, session: SessionState, console: Con
     console.rule("[bold italic red]File Info")
     files_info: dict = engine.list_files(location="local")
 
-    files_selection = get_uploaded_files(
+    files_selection = await get_uploaded_files(
         files_info=files_info,
         session=session,
     )
@@ -79,7 +86,7 @@ def _handle_file_inputs(engine: EventEngine, session: SessionState, console: Con
         if file_info.id:
             console.print(f"⚠️ Uploading skipped: File [italic blue]{file_info.filename}[/] existed in OpenAI Files.")
         else:
-            logger.info(f"✅ Uploading file: [italic blue]{file_info.filename}[/]...")
+            console.print(f"✅ Uploading file: [italic blue]{file_info.filename}[/]...")
             file_info = engine.ensure_upload_file(file_info)
 
         if file_info.filetype == "image":
@@ -140,7 +147,7 @@ def _handle_command(session: SessionState, console: Console) -> str | None:
     raise ValueError("Unknown command")
 
 
-def _render_response(engine: EventEngine, session: SessionState, console: Console) -> None:
+async def _render_response(engine: EventEngine, session: SessionState, console: Console) -> None:
     """Render a streaming assistant response to the console.
 
     Args:
@@ -160,34 +167,39 @@ def _render_response(engine: EventEngine, session: SessionState, console: Consol
         vertical_overflow="visible",
         refresh_per_second=10,
     ) as live:
-        for chunk in engine.stream(session=session):
-            full_markdown += chunk
-            live.update(Markdown(full_markdown))
+        async for chunk, status in engine.astream(session=session):
+            if chunk:
+                full_markdown += chunk
+                live.update(Markdown(full_markdown))
 
 
-def run():
+async def run():
     """Run the interactive CLI session loop."""
-    os.system("cls||clear")
+    os.system("clear||cls")
     console = Console()
     console.rule("[bold green] ✨ Kaito ✨ ")
 
     try:
         engine = EventEngine(
             client=OpenAI(),
+            async_client=AsyncOpenAI(),
             built_in_tools=BUILT_IN_TOOLS_INFO["buildin_tools"],
         )
 
         session = SessionState()
         while True:
-            _ensure_model_info(session=session, console=console)
-            if _ensure_tools_selection(session=session, console=console):
-                continue
+            if not session.user_query or session.user_query in {"/tool", "/model", "/file"}:
+                with console.screen():
+                    await _ensure_model_info(session=session, console=console)
+                    
+                    if await _ensure_tools_selection(session=session, console=console):
+                        continue
 
-            if _handle_file_inputs(engine=engine, session=session, console=console):
-                continue
+                    if await _handle_file_inputs(engine=engine, session=session, console=console):
+                        continue
 
             console.rule("[bold italic green]User")
-            session.user_query = get_user_query()
+            session.user_query = await get_user_query()
             console.print(Markdown(session.user_query), style="green")
 
             command_action = _handle_command(session=session, console=console)
@@ -197,6 +209,6 @@ def run():
                 session = SessionState()
                 continue
 
-            _render_response(engine=engine, session=session, console=console)
+            await _render_response(engine=engine, session=session, console=console)
     except KeyboardInterrupt:
         print("\nProgram interrupted by user. Exiting...")

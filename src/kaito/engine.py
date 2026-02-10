@@ -1,17 +1,19 @@
+import base64
 import json
 import os
 import time
 from pathlib import Path
-from typing import Generator, cast
+from typing import AsyncGenerator, Generator, cast
 
 from loguru import logger
-from openai import OpenAI
+from openai import AsyncOpenAI, OpenAI
 
 import kaito.openai_datatypes as R
 
 # from .vector_store import # KaitoVectorStoreFiles, KaitoVectorStores
 from .local_file_engine import LocalFileEngine
-from .prompts import system_prompt
+
+# from .prompts import system_prompt
 from .types import FileInfo, SessionState
 
 MAX_TOOL_CALLS: int = int(os.getenv("MAX_TOOL_CALLS", default=5))
@@ -37,6 +39,7 @@ class EventEngine:
     def __init__(
         self,
         client: OpenAI,
+        async_client: AsyncOpenAI,
         built_in_tools: dict[str, dict],
         db_path: Path | None = None,
     ):
@@ -49,16 +52,17 @@ class EventEngine:
             db_path: Optional path to the local file DB directory.
         """
         self._client = client
+        self._async_client: AsyncOpenAI = async_client
         self._file_engine = LocalFileEngine(client=client, db_path=db_path)
         self._built_in_tools: dict[str, dict] = built_in_tools
 
         # self._vs = KaitoVectorStores(client=client)
         # self._vs_files = KaitoVectorStoreFiles(client=client)
 
-    def stream(
+    async def astream(
         self,
         session: SessionState,
-    ) -> Generator[str]:
+    ) -> AsyncGenerator:
         """Yield incremental text deltas while updating internal history and usage.
 
         Args:
@@ -67,135 +71,209 @@ class EventEngine:
         Yields:
             Text deltas emitted by the model as they arrive.
         """
-        stream: list[R.ResponseStreamEvent] = self._create_response_stream(session=session)
+        stream = await self._create_response_stream(session=session)
 
         output_index = -1
         t_s = time.time()
 
-        for _, event in enumerate(stream):
-            match type(event):
-                case R.ResponseCreatedEvent | R.ResponseInProgressEvent:
-                    ...
-                    # TODO
-                    # print_class(event)
-
-                case R.ResponseFailedEvent | R.ResponseIncompleteEvent:
-                    ...
-                    # TODO
-                    # print_class(event)
-
-                case R.ResponseCompletedEvent:
-                    event = cast(R.ResponseCompletedEvent, event)
-                    _output = event.response.output
-                    session.current_output = _output
-                    session.usage = event.response.usage
-                    session.full_history += _output
-                    session.compact_history += _output
-
-                # status (main) - Output Item
-                case R.ResponseOutputItemAddedEvent | R.ResponseOutputItemDoneEvent:
-                    event = cast(R.ResponseOutputItemAddedEvent | R.ResponseOutputItemDoneEvent, event)
-                    if output_index != event.output_index:
-                        output_index += 1
-                    assert output_index == event.output_index, f"output_index does not align - count:{output_index}|event:{event.output_index}"
-
-                    match event.item.type:
-                        case "message" | "reasoning" | "web_search_call" | "code_interpreter_call" | "file_search_call":
-                            _item = cast(
-                                R.ResponseOutputMessage
-                                | R.ResponseReasoningItem
-                                | R.ResponseFunctionWebSearch
-                                | R.ResponseCodeInterpreterToolCall
-                                | R.ResponseFileSearchToolCall,  # noqa: E501
-                                event.item,
-                            )
-                            _status_type = event.type.split(".")
-                            logger.debug(f"{time.time() - t_s:.2f} | @{_status_type[2]} | {event.item.type}: {_item.status}")
-
-                # File Search
-                # status - file search
-                case R.ResponseFileSearchCallInProgressEvent | R.ResponseFileSearchCallSearchingEvent | R.ResponseFileSearchCallCompletedEvent:
-                    event = cast(
-                        R.ResponseFileSearchCallInProgressEvent | R.ResponseFileSearchCallSearchingEvent | R.ResponseFileSearchCallCompletedEvent,
-                        event,
-                    )
-                    _status_type = event.type.split(".")
-                    logger.debug(f"{time.time() - t_s:.2f} | {_status_type[1]}: {_status_type[2]}")
-
-                # Code Interpreter
-                ## status - code interpreter
-                case (
-                    R.ResponseCodeInterpreterCallInProgressEvent | R.ResponseCodeInterpreterCallInterpretingEvent | R.ResponseCodeInterpreterCallCompletedEvent
-                ):
-                    event = cast(
-                        R.ResponseCodeInterpreterCallInProgressEvent
-                        | R.ResponseCodeInterpreterCallInterpretingEvent
-                        | R.ResponseCodeInterpreterCallCompletedEvent,
-                        event,
-                    )
-                    _status_type = event.type.split(".")
-                    logger.debug(f"{time.time() - t_s:.2f} | {_status_type[1]}: {_status_type[2]}")
-                ## status - code interpreter
-                case R.ResponseCodeInterpreterCallCodeDoneEvent:
-                    event = cast(R.ResponseCodeInterpreterCallCodeDoneEvent, event)
-                    _status_type = event.type.split(".")
-                    logger.debug(f"{time.time() - t_s:.2f} | {_status_type[1]}: {_status_type[2]}")
-                ## content - code interpreter
-                case R.ResponseCodeInterpreterCallCodeDeltaEvent:
-                    event = cast(R.ResponseCodeInterpreterCallCodeDeltaEvent, event)
-                    # TODO
-
-                # Web Search
-                ## status - web search
-                case R.ResponseWebSearchCallInProgressEvent | R.ResponseWebSearchCallSearchingEvent | R.ResponseWebSearchCallCompletedEvent:
-                    event = cast(
-                        R.ResponseWebSearchCallInProgressEvent | R.ResponseWebSearchCallSearchingEvent | R.ResponseWebSearchCallCompletedEvent,
-                        event,
-                    )
-                    _status_type = event.type.split(".")
-                    logger.debug(f"{time.time() - t_s:.2f} | {_status_type[1]}: {_status_type[2]}")
-
-                # Text Output
-                # status - text
-                case R.ResponseTextDoneEvent:
-                    event = cast(R.ResponseTextDoneEvent, event)
-                    _status_type = event.type.split(".")
-                    # FIXME
-                    logger.debug(f"\n{time.time() - t_s:.2f} | {_status_type[1]}: {_status_type[2]}")
-                # status - **text** content_part - Emitted when a new output item is added
-                case R.ResponseContentPartAddedEvent | R.ResponseContentPartDoneEvent:
-                    event = cast(R.ResponseContentPartAddedEvent | R.ResponseContentPartDoneEvent, event)
-                    _status_type = event.type.split(".")
-                    logger.debug(f"{time.time() - t_s:.2f} | @{_status_type[2]} | {event.part.type}: {_status_type[1]}")
-                # output - text
-                case R.ResponseTextDeltaEvent:
-                    event = cast(R.ResponseTextDeltaEvent, event)
-                    # print(event.delta, end="")
-                    yield event.delta
-                # output - annotation
-                case R.ResponseOutputTextAnnotationAddedEvent:
-                    event = cast(R.ResponseOutputTextAnnotationAddedEvent, event)
-                    R.Annotation
-                    annotation = cast(dict, event.annotation)
-                    match annotation.get("type", None):
-                        case "url_citation":
-                            url_citation = R.AnnotationURLCitation(**annotation)  # noqa: F841
-                        case "file_citation":
-                            file_citation = R.AnnotationFileCitation(**annotation)  # noqa: F841
-                        case "container_file_citation":
-                            container_file_citation = R.AnnotationContainerFileCitation(**annotation)  # noqa: F841
-                        case "file_path":
-                            file_path = R.AnnotationFilePath(**annotation)  # noqa: F841
-
-                case _:
-                    print_class(event)
-
+        async for event in stream:
+            output_index, status, delta = self._process_stream_event(
+                event=event,
+                session=session,
+                output_index=output_index,
+                start_time=t_s,
+            )
+            yield delta, status
+            
             if WRITE_TO_FILE:
                 with open(f"tests/streaming_results_{int(t_s)}.json", "a") as file:
                     json_line = json.dumps(event.model_dump(), indent=2)
                     file.write(json_line + "\n")
 
         self._try_compact(session=session)
+
+    def _process_stream_event(
+        self,
+        event: R.ResponseStreamEvent,
+        session: SessionState,
+        output_index: int,
+        start_time: float,
+    ) -> tuple[int, str, str | None]:
+        """Handle one stream event and return updated state plus any text delta.
+
+        Args:
+            event: Stream event from the OpenAI client.
+            session: Current SessionState to update.
+            output_index: Current output index tracker.
+            start_time: Stream start timestamp for logging.
+
+        Returns:
+            Updated output index and optional text delta.
+        """
+        if isinstance(event, (R.ResponseCreatedEvent, R.ResponseInProgressEvent, R.ResponseFailedEvent, R.ResponseIncompleteEvent)):
+            return output_index, event.type, None
+
+        if isinstance(event, R.ResponseCompletedEvent):
+            self._handle_response_completed(event, session=session)
+            return output_index, event.type, None
+
+        if isinstance(event, (R.ResponseOutputItemAddedEvent, R.ResponseOutputItemDoneEvent)):
+            output_index = self._handle_output_item_event(event, output_index=output_index, start_time=start_time)
+            return output_index, event.type, None
+
+        if isinstance(
+            event,
+            (
+                R.ResponseFileSearchCallInProgressEvent,
+                R.ResponseFileSearchCallSearchingEvent,
+                R.ResponseFileSearchCallCompletedEvent,
+                R.ResponseWebSearchCallInProgressEvent,
+                R.ResponseWebSearchCallSearchingEvent,
+                R.ResponseWebSearchCallCompletedEvent,
+                R.ResponseCodeInterpreterCallInProgressEvent,
+                R.ResponseCodeInterpreterCallInterpretingEvent,
+                R.ResponseCodeInterpreterCallCompletedEvent,
+                R.ResponseCodeInterpreterCallCodeDoneEvent,
+                R.ResponseImageGenCallInProgressEvent,
+                R.ResponseImageGenCallGeneratingEvent,
+                R.ResponseImageGenCallCompletedEvent,
+                R.ResponseImageGenCallPartialImageEvent,
+            ),
+        ):
+            status_ = self._log_tool_status(event, start_time=start_time)
+            return output_index, status_, None
+
+        if isinstance(event, R.ResponseCodeInterpreterCallCodeDeltaEvent):
+            status_ = self._log_tool_status(event, start_time=start_time)
+            return output_index, status_, None
+
+        if isinstance(event, R.ResponseTextDoneEvent):
+            status_ = self._log_text_status(event, start_time=start_time)
+            return output_index, status_, None
+
+        if isinstance(event, (R.ResponseContentPartAddedEvent, R.ResponseContentPartDoneEvent)):
+            status_ = self._log_content_part_status(event, start_time=start_time)
+            return output_index, status_, None
+
+        if isinstance(event, R.ResponseTextDeltaEvent):
+            return output_index, event.type, event.delta
+
+        if isinstance(event, R.ResponseImageGenCallPartialImageEvent):
+            event: R.ResponseImageGenCallPartialImageEvent = cast(R.ResponseImageGenCallPartialImageEvent, event)
+            image_base64_str: str = event.partial_image_b64
+            _image_bytes: bytes = base64.b64decode(image_base64_str)  # Note that as set `partial_images` to be 0 already
+            return output_index, event.type, image_base64_str
+
+        if isinstance(event, R.ResponseOutputTextAnnotationAddedEvent):
+            _annotation = self._handle_annotation_event(event)  # TODO
+            return output_index, event.type, None
+
+        print_class(event)
+        return output_index, event.type, None
+
+    def _handle_response_completed(self, event: R.ResponseCompletedEvent, session: SessionState) -> None:
+        """Update session state when a response completes.
+
+        Args:
+            event: Completed response event.
+            session: Current SessionState to update.
+        """
+        output = event.response.output
+        session.current_output = output
+        session.usage = event.response.usage
+        session.full_history += output
+        session.compact_history += output
+
+    def _handle_output_item_event(
+        self,
+        event: R.ResponseOutputItemAddedEvent | R.ResponseOutputItemDoneEvent,
+        output_index: int,
+        start_time: float,
+    ) -> int:
+        """Track output indices and log item status.
+
+        Args:
+            event: Output item status event.
+            output_index: Current output index tracker.
+            start_time: Stream start timestamp for logging.
+
+        Returns:
+            Updated output index.
+        """
+        if output_index != event.output_index:
+            output_index += 1
+        assert output_index == event.output_index, f"output_index does not align - count:{output_index}|event:{event.output_index}"
+
+        if event.item.type in {"message", "reasoning", "web_search_call", "code_interpreter_call", "file_search_call"}:
+            _item = cast(
+                R.ResponseOutputMessage
+                | R.ResponseReasoningItem
+                | R.ResponseFunctionWebSearch
+                | R.ResponseCodeInterpreterToolCall
+                | R.ResponseFileSearchToolCall,
+                event.item,
+            )
+            _status_type = event.type.split(".")
+            logger.debug(f"{time.time() - start_time:.2f} | @{_status_type[2]} | {event.item.type}: {_item.status}")
+
+        return output_index
+
+    def _log_tool_status(self, event: R.ResponseStreamEvent, start_time: float) -> str:
+        """Log tool status transitions for file search, web search, and code interpreter.
+
+        Args:
+            event: Tool status stream event.
+            start_time: Stream start timestamp for logging.
+        """
+        _status_type = event.type.split(".")
+        logger.debug(f"{time.time() - start_time:.2f} | {_status_type[1]}: {_status_type[2]}")
+        return f"{_status_type[1]}: {_status_type[2]}"
+
+    def _log_text_status(self, event: R.ResponseTextDoneEvent, start_time: float) -> str:
+        """Log completion of a text output item.
+
+        Args:
+            event: Text done event.
+            start_time: Stream start timestamp for logging.
+        """
+        _status_type = event.type.split(".")
+        logger.debug(f"\n{time.time() - start_time:.2f} | {_status_type[1]}: {_status_type[2]}")
+        return f"{_status_type[1]}: {_status_type[2]}"
+
+    def _log_content_part_status(
+        self,
+        event: R.ResponseContentPartAddedEvent | R.ResponseContentPartDoneEvent,
+        start_time: float,
+    ) -> str:
+        """Log content part status changes.
+
+        Args:
+            event: Content part status event.
+            start_time: Stream start timestamp for logging.
+        """
+        _status_type = event.type.split(".")
+        logger.debug(f"{time.time() - start_time:.2f} | @{_status_type[2]} | {event.part.type}: {_status_type[1]}")
+        return f"@{_status_type[2]} | {event.part.type}: {_status_type[1]}"
+
+    def _handle_annotation_event(self, event: R.ResponseOutputTextAnnotationAddedEvent):
+        """Handle text annotation events for citations and file paths.
+
+        Args:
+            event: Annotation added event.
+        """
+        annotation: dict = cast(dict, event.annotation)
+        annot = annotation
+        match annotation.get("type", None):
+            case "url_citation":
+                annot = R.AnnotationURLCitation(**annotation)
+            case "file_citation":
+                annot = R.AnnotationFileCitation(**annotation)
+            case "container_file_citation":
+                annot = R.AnnotationContainerFileCitation(**annotation)
+            case "file_path":
+                annot = R.AnnotationFilePath(**annotation)
+        
+        return annot
 
     def list_files(self, location: str = "local") -> dict[str, FileInfo]:
         """Return metadata for local files tracked in the file DB.
@@ -241,7 +319,7 @@ class EventEngine:
         # with open("compacted.json", "w") as file:
         #     json.dump(compacted_response.model_dump(), file, indent=2)
 
-    def _create_response_stream(
+    async def _create_response_stream(
         self,
         session: SessionState,
     ):
@@ -254,11 +332,11 @@ class EventEngine:
             Streaming response iterator from the OpenAI client.
         """
         # TODO: cqju: only search via file input
-        if "file_search" in session.tools_selection and session.vector_store_ids:
-            self._built_in_tools["file_search"]["vector_store_ids"] = session.vector_store_ids
+        # if "file_search" in session.tools_selection and session.vector_store_ids:
+        #     self._built_in_tools["file_search"]["vector_store_ids"] = session.vector_store_ids
 
         _tools: list = [self._built_in_tools[tool] for tool in session.tools_selection if tool in self._built_in_tools]
-        content = [R.ResponseInputText(type="input_text", text=session.user_query)]
+        content: list = [R.ResponseInputText(type="input_text", text=session.user_query)]
         content += [R.ResponseInputFile(type="input_file", file_id=file_id) for file_id in session.file_ids.file.keys()]
         content += [R.ResponseInputImage(type="input_image", file_id=file_id, detail="high") for file_id in session.file_ids.image.keys()]
 
@@ -269,15 +347,15 @@ class EventEngine:
         _model: str = session.model_info["name"]
         _effort: str = session.model_info["effort"]
 
-        return self._client.responses.create(
+        return await self._async_client.responses.create(  # type: ignore
             model=_model,
-            input=session.compact_history,  # type: ignore
+            input=session.compact_history,
             # instructions=system_prompt,  # TODO
             tools=_tools,
             include=["web_search_call.action.sources", "reasoning.encrypted_content", "file_search_call.results"],
             max_tool_calls=MAX_TOOL_CALLS,
             stream=True,
-            reasoning={"effort": _effort},  # type: ignore
+            reasoning={"effort": _effort},
             store=False,  # ZDR policy
             # **kwargs
         )

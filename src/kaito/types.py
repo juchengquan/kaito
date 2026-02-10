@@ -50,7 +50,8 @@ class SessionState(BaseModel):
 
     tools_default: tuple[str, ...] = Field(
         default_factory=lambda: ("web_search",),
-        description="Immutable default tool identifiers to preselect.",
+        description="*Immutable* default tool identifiers to preselect.",
+        frozen=True,
     )
     model_info: dict = Field(
         default_factory=dict,

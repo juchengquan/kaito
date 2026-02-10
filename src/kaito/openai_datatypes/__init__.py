@@ -59,9 +59,9 @@ from openai.types.responses import (
     ResponseImageGenCallGeneratingEvent,
     ResponseImageGenCallInProgressEvent,
     ResponseImageGenCallPartialImageEvent,
-    ResponseInProgressEvent,
     ResponseIncludable,
     ResponseIncompleteEvent,
+    ResponseInProgressEvent,
     # ResponseInput,
     ResponseInputAudio,
     ResponseInputContent,
@@ -123,12 +123,10 @@ from openai.types.responses import (
     WebSearchPreviewTool,
     WebSearchTool,
 )
-
-
 from openai.types.responses.response_output_text import (
     Annotation,
-    AnnotationFileCitation,
-    AnnotationURLCitation,
     AnnotationContainerFileCitation,
+    AnnotationFileCitation,
     AnnotationFilePath,
+    AnnotationURLCitation,
 )

@@ -5,7 +5,7 @@ from .assets import MODEL_INFO_DATA
 from .types import FileInfo, SessionState
 
 
-def get_uploaded_files(
+async def get_uploaded_files(
     files_info: dict[str, FileInfo],
     session: SessionState,
 ) -> list[FileInfo]:
@@ -24,45 +24,45 @@ def get_uploaded_files(
             Choice(name="<< Back", value="/back", enabled=False),
         ]
 
-        _files_selection: list[FileInfo] = inquirer.checkbox(  # type: ignore
+        _files_selection: list[FileInfo] = await inquirer.checkbox(  # type: ignore
             message="Select the files/images as Inputs:",
             choices=files_choices,
             validate=lambda x: len(x) >= 1,
             invalid_message="Select at least 1 file.",
-        ).execute()
+        ).execute_async()
 
         return _files_selection
     return []
 
 
-def get_model_info() -> dict:
+async def get_model_info() -> dict:
     """Prompt for model choice and reasoning effort, returning the merged config.
 
     Returns:
         Dictionary with the selected model config plus an "effort" key.
     """
-    _model_info: dict = inquirer.select(  # type: ignore
+    _model_info: dict = await inquirer.select( # type: ignore
         message="Select Openai model:",
         qmark="",
         amark="",
         choices=[Choice(name=k, value=v) for k, v in MODEL_INFO_DATA["models"].items()],
         default=MODEL_INFO_DATA["models"][MODEL_INFO_DATA["default"]],
         # transformer=lambda _: "",
-    ).execute()
-    _model_effort = inquirer.select(  # type: ignore
+    ).execute_async()
+    _model_effort = await inquirer.select(
         message="Select model reasoning effort:",
         qmark="",
         amark="",
         choices=[Choice(name=value, value=value) for value in _model_info["available_reasoning_effort"]],
         default=_model_info["default_reasoning_effort"],
         # transformer=lambda _: "",
-    ).execute()
+    ).execute_async()
 
     _model_info.update({"effort": _model_effort})
     return _model_info
 
 
-def get_selected_tools(session: SessionState):
+async def get_selected_tools(session: SessionState):
     """Prompt for tool selections, honoring defaults from the session.
 
     Args:
@@ -71,7 +71,7 @@ def get_selected_tools(session: SessionState):
     Returns:
         List of selected tool identifiers.
     """
-    _tools_selection = inquirer.checkbox(  # type: ignore
+    _tools_selection = await inquirer.checkbox(
         message="Select tools:",
         qmark="",
         amark="",
@@ -87,18 +87,18 @@ def get_selected_tools(session: SessionState):
         cycle=False,
         validate=lambda x: len(x) >= 0,
         transformer=lambda x: ", ".join(x) if x and "<< Back to Model Selection" not in x else "No tool selected",
-    ).execute()
+    ).execute_async()
 
     return _tools_selection
 
 
-def get_user_query():
+async def get_user_query():
     """Prompt the user for a query or command string.
 
     Returns:
         Trimmed user input string (may be a command like "/tool").
     """
-    _user_query: str = inquirer.text(  # type: ignore
+    _user_query: str = await inquirer.text( # type: ignore
         message="",
         instruction="Ask anything:",
         qmark="",
@@ -107,5 +107,5 @@ def get_user_query():
         validate=lambda x: len(x) > 1,
         completer={"/back": None, "/tool": None, "/model": None, "/file": None, "/new": None, "/save": None},
         transformer=lambda _: "",
-    ).execute()
+    ).execute_async()
     return _user_query.strip()
